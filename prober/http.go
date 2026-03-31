@@ -382,13 +382,14 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 		registry.MustRegister(probeFailedDueToCEL)
 	}
 
-	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+	targetLower := strings.ToLower(target)
+	if !strings.HasPrefix(targetLower, "http://") && !strings.HasPrefix(targetLower, "https://") {
 		target = "http://" + target
 	}
 
 	// For HTTP/3, ensure HTTPS is used
-	if httpConfig.UseHTTP3 && strings.HasPrefix(target, "http://") {
-		target = strings.Replace(target, "http://", "https://", 1)
+	if httpConfig.UseHTTP3 && strings.HasPrefix(targetLower, "http://") {
+		target = "https://" + target[len("http://"):]
 		logger.Warn("Converting HTTP to HTTPS for HTTP/3 compatibility", "original_target", strings.Replace(target, "https://", "http://", 1), "converted_target", target)
 	}
 
@@ -440,6 +441,7 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 
 		// HTTP/3 requires TLS 1.3 minimum
 		if tlsConfig.MinVersion < tls.VersionTLS13 {
+			logger.Debug("Setting TLS Version to 1.3 because HTTP/3 requires TLS 1.3 minimum")
 			tlsConfig.MinVersion = tls.VersionTLS13
 		}
 
@@ -487,10 +489,10 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 	client.Transport = tt
 
 	client.CheckRedirect = func(r *http.Request, via []*http.Request) error {
-		logger.Warn("Received redirect", "location", r.Response.Header.Get("Location"))
+		logger.Info("Received redirect", "location", r.Response.Header.Get("Location"))
 		redirects = len(via)
 		if redirects > 10 || !httpConfig.HTTPClientConfig.FollowRedirects {
-			logger.Warn("Not following redirect")
+			logger.Info("Not following redirect")
 			return errors.New("don't follow redirects")
 		}
 		return nil
