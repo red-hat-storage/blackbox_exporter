@@ -35,12 +35,13 @@ import (
 
 var (
 	Probers = map[string]ProbeFn{
-		"http": ProbeHTTP,
-		"tcp":  ProbeTCP,
-		"icmp": ProbeICMP,
-		"dns":  ProbeDNS,
-		"grpc": ProbeGRPC,
-		"unix": ProbeUnix,
+		"http":      ProbeHTTP,
+		"tcp":       ProbeTCP,
+		"icmp":      ProbeICMP,
+		"dns":       ProbeDNS,
+		"grpc":      ProbeGRPC,
+		"unix":      ProbeUnix,
+		"websocket": ProbeWebsocket,
 	}
 )
 
@@ -90,6 +91,10 @@ func Handler(w http.ResponseWriter, r *http.Request, c *config.Config, logger *s
 		return
 	}
 
+	decodedTarget, err := url.QueryUnescape(target)
+	if err == nil {
+		target = decodedTarget
+	}
 	prober, ok := Probers[module.Prober]
 	if !ok {
 		http.Error(w, fmt.Sprintf("Unknown prober %q", module.Prober), http.StatusBadRequest)
