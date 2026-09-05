@@ -30,6 +30,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,12 +82,12 @@ func matchCELExpressions(ctx context.Context, reader io.Reader, httpConfig confi
 		return false
 	}
 
-	evalPayload := map[string]interface{}{
+	evalPayload := map[string]any{
 		"body": bodyJSON,
 	}
 
-	if httpConfig.FailIfBodyJsonMatchesCEL != nil {
-		result, details, err := httpConfig.FailIfBodyJsonMatchesCEL.ContextEval(ctx, evalPayload)
+	if httpConfig.FailIfBodyJSONMatchesCEL != nil {
+		result, details, err := httpConfig.FailIfBodyJSONMatchesCEL.ContextEval(ctx, evalPayload)
 		if err != nil {
 			logger.Error("Error evaluating CEL expression", "err", err)
 			return false
@@ -96,13 +97,13 @@ func matchCELExpressions(ctx context.Context, reader io.Reader, httpConfig confi
 			return false
 		}
 		if result.Type() == cel.BoolType && result.Value().(bool) {
-			logger.Error("Body matched CEL expression", "expression", httpConfig.FailIfBodyJsonMatchesCEL.Expression)
+			logger.Error("Body matched CEL expression", "expression", httpConfig.FailIfBodyJSONMatchesCEL.Expression)
 			return false
 		}
 	}
 
-	if httpConfig.FailIfBodyJsonNotMatchesCEL != nil {
-		result, details, err := httpConfig.FailIfBodyJsonNotMatchesCEL.ContextEval(ctx, evalPayload)
+	if httpConfig.FailIfBodyJSONNotMatchesCEL != nil {
+		result, details, err := httpConfig.FailIfBodyJSONNotMatchesCEL.ContextEval(ctx, evalPayload)
 		if err != nil {
 			logger.Error("Error evaluating CEL expression", "err", err)
 			return false
@@ -112,7 +113,7 @@ func matchCELExpressions(ctx context.Context, reader io.Reader, httpConfig confi
 			return false
 		}
 		if result.Type() == cel.BoolType && !result.Value().(bool) {
-			logger.Error("Body did not match CEL expression", "expression", httpConfig.FailIfBodyJsonNotMatchesCEL.Expression)
+			logger.Error("Body did not match CEL expression", "expression", httpConfig.FailIfBodyJSONNotMatchesCEL.Expression)
 			return false
 		}
 	}
@@ -127,17 +128,14 @@ func matchRegularExpressionsOnHeaders(header http.Header, httpConfig config.HTTP
 			if !headerMatchSpec.AllowMissing {
 				logger.Error("Missing required header", "header", headerMatchSpec.Header)
 				return false
-			} else {
-				continue // No need to match any regex on missing headers.
 			}
+			continue // No need to match any regex on missing headers.
 		}
 
-		for _, val := range values {
-			if headerMatchSpec.Regexp.MatchString(val) {
-				logger.Error("Header matched regular expression", "header", headerMatchSpec.Header,
-					"regexp", headerMatchSpec.Regexp, "value_count", len(values))
-				return false
-			}
+		if slices.ContainsFunc(values, headerMatchSpec.Regexp.MatchString) {
+			logger.Error("Header matched regular expression", "header", headerMatchSpec.Header,
+				"regexp", headerMatchSpec.Regexp, "value_count", len(values))
+			return false
 		}
 	}
 	for _, headerMatchSpec := range httpConfig.FailIfHeaderNotMatchesRegexp {
@@ -146,19 +144,11 @@ func matchRegularExpressionsOnHeaders(header http.Header, httpConfig config.HTTP
 			if !headerMatchSpec.AllowMissing {
 				logger.Error("Missing required header", "header", headerMatchSpec.Header)
 				return false
-			} else {
-				continue // No need to match any regex on missing headers.
 			}
+			continue // No need to match any regex on missing headers.
 		}
 
-		anyHeaderValueMatched := false
-
-		for _, val := range values {
-			if headerMatchSpec.Regexp.MatchString(val) {
-				anyHeaderValueMatched = true
-				break
-			}
-		}
+		anyHeaderValueMatched := slices.ContainsFunc(values, headerMatchSpec.Regexp.MatchString)
 
 		if !anyHeaderValueMatched {
 			logger.Error("Header did not match regular expression", "header", headerMatchSpec.Header,
@@ -243,17 +233,17 @@ func (t *transport) DNSDone(_ httptrace.DNSDoneInfo) {
 	defer t.mu.Unlock()
 	t.current.dnsDone = time.Now()
 }
-func (ts *transport) ConnectStart(_, _ string) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	t := ts.current
+func (t *transport) ConnectStart(_, _ string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ts := t.current
 	// No DNS resolution because we connected to IP directly.
-	if t.dnsDone.IsZero() {
-		t.start = time.Now()
-		t.dnsDone = t.start
+	if ts.dnsDone.IsZero() {
+		ts.start = time.Now()
+		ts.dnsDone = ts.start
 	}
 }
-func (t *transport) ConnectDone(net, addr string, err error) {
+func (t *transport) ConnectDone(_, _ string, _ error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.current.connectDone = time.Now()
@@ -378,7 +368,7 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 
 	httpConfig := module.HTTP
 
-	if httpConfig.FailIfBodyJsonMatchesCEL != nil || httpConfig.FailIfBodyJsonNotMatchesCEL != nil {
+	if httpConfig.FailIfBodyJSONMatchesCEL != nil || httpConfig.FailIfBodyJSONNotMatchesCEL != nil {
 		registry.MustRegister(probeFailedDueToCEL)
 	}
 
@@ -526,13 +516,13 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 
 	// If a body file is configured, add its content to the request.
 	if httpConfig.BodyFile != "" {
-		body_file, err := os.Open(httpConfig.BodyFile)
+		bodyFile, err := os.Open(httpConfig.BodyFile)
 		if err != nil {
 			logger.Error("Error creating request", "err", err)
 			return
 		}
-		defer body_file.Close()
-		body = body_file
+		defer bodyFile.Close()
+		body = bodyFile
 	}
 
 	request, err := http.NewRequest(httpConfig.Method, targetURL.String(), body)
@@ -591,11 +581,8 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 
 		logger.Debug("Received HTTP response", "status_code", resp.StatusCode)
 		if len(httpConfig.ValidStatusCodes) != 0 {
-			for _, code := range httpConfig.ValidStatusCodes {
-				if resp.StatusCode == code {
-					success = true
-					break
-				}
+			if slices.Contains(httpConfig.ValidStatusCodes, resp.StatusCode) {
+				success = true
 			}
 			if !success {
 				logger.Error("Invalid HTTP response status code", "status_code", resp.StatusCode,
@@ -660,7 +647,7 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 			}
 		}
 
-		if success && (httpConfig.FailIfBodyJsonMatchesCEL != nil || httpConfig.FailIfBodyJsonNotMatchesCEL != nil) {
+		if success && (httpConfig.FailIfBodyJSONMatchesCEL != nil || httpConfig.FailIfBodyJSONNotMatchesCEL != nil) {
 			success = matchCELExpressions(ctx, byteCounter, httpConfig, logger)
 			if success {
 				probeFailedDueToCEL.Set(0)
@@ -703,13 +690,7 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 		probeHTTPVersionGauge.Set(httpVersionNumber)
 
 		if len(httpConfig.ValidHTTPVersions) != 0 {
-			found := false
-			for _, version := range httpConfig.ValidHTTPVersions {
-				if version == resp.Proto {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(httpConfig.ValidHTTPVersions, resp.Proto)
 			if !found {
 				logger.Error("Invalid HTTP version number", "version", resp.Proto)
 				success = false
@@ -770,6 +751,7 @@ func ProbeHTTP(ctx context.Context, target string, module config.Module, registr
 		probeTLSCipher.WithLabelValues(getTLSCipher(resp.TLS)).Set(1)
 		probeSSLLastChainExpiryTimestampSeconds.Set(float64(getLastChainExpiry(resp.TLS).Unix()))
 		probeSSLLastInformation.WithLabelValues(getFingerprint(resp.TLS), getSubject(resp.TLS), getIssuer(resp.TLS), getDNSNames(resp.TLS), getSerialNumber(resp.TLS)).Set(1)
+		checkCRL(ctx, resp.TLS, module.HTTP.CheckRevoked, &module.HTTP.HTTPClientConfig.ProxyConfig, registry, logger)
 		if httpConfig.FailIfSSL {
 			logger.Error("Final request was over SSL")
 			success = false
