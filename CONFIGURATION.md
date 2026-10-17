@@ -49,7 +49,7 @@ then a single address is selected to test, using the following logic:
   specified by `preferred_ip_protocol`.  The connection will fail if an
   address from the specified family is not available.
 * If there are multiple addresses in the chosen address family, then only
-  the the first one found is used.  In the case of round-robin DNS this
+  the first one found is used.  In the case of round-robin DNS this
   means that effectively one will be selected at random.
 
 ### `<module>`
@@ -152,6 +152,12 @@ then a single address is selected to test, using the following logic:
   # Configuration for TLS protocol of HTTP probe.
   tls_config:
     [ <tls_config> ]
+
+  # Check each certificate in the TLS chain against its CRL and emit probe_ssl_crl_* metrics.
+  # This only reports revocation state, it never fails the probe: a revoked certificate or
+  # an unreachable CRL leaves probe_success untouched. Alert on the metrics instead.
+  # CRLs are fetched using the proxy settings configured below.
+  [ check_revoked: <boolean> | default = false ]
 
   # The HTTP basic authentication credentials.
   basic_auth:
@@ -259,6 +265,12 @@ query_response:
 tls_config:
   [ <tls_config> ]
 
+# Check each certificate in the TLS chain against its CRL and emit probe_ssl_crl_* metrics.
+# This only reports revocation state, it never fails the probe: a revoked certificate or
+# an unreachable CRL leaves probe_success untouched. Alert on the metrics instead.
+# Requires tls to be true, or a query_response step using starttls.
+[ check_revoked: <boolean> | default = false ]
+
 ```
 
 ### `<unix_probe>`
@@ -267,12 +279,14 @@ tls_config:
 
 # The query sent in the unix socket probe and the expected associated response.
 # "expect" matches a regular expression;
+# "expect_bytes" does exact byte-by-byte match, mutually exclusive with "expect".
 # "labels" can define labels which will be exported on metric "probe_expect_info";
 # "send" sends some content;
 # "send" and "labels.value" can contain values matched by "expect" (such as "${1}");
 # "starttls" upgrades connection to TLS.
 query_response:
   [ - [ [ expect: <string> ],
+        [ expect_bytes: <string> ],
         [ labels:
           - [ name: <string>
               value: <string>
@@ -289,6 +303,12 @@ query_response:
 # Configuration for TLS protocol of unix socket probe.
 tls_config:
   [ <tls_config> ]
+
+# Check each certificate in the TLS chain against its CRL and emit probe_ssl_crl_* metrics.
+# This only reports revocation state, it never fails the probe: a revoked certificate or
+# an unreachable CRL leaves probe_success untouched. Alert on the metrics instead.
+# Requires tls to be true, or a query_response step using starttls.
+[ check_revoked: <boolean> | default = false ]
 
 ```
 
@@ -415,6 +435,12 @@ metadata:
 # Configuration for TLS protocol of gRPC probe.
 tls_config:
   [ <tls_config> ]
+
+# Check each certificate in the TLS chain against its CRL and emit probe_ssl_crl_* metrics.
+# This only reports revocation state, it never fails the probe: a revoked certificate or
+# an unreachable CRL leaves probe_success untouched. Alert on the metrics instead.
+# Requires tls to be true.
+[ check_revoked: <boolean> | default = false ]
 ```
 
 ### `<websocket_probe>`
@@ -510,11 +536,23 @@ query_response:
 # The CA cert to use for the targets.
 [ ca_file: <filename> ]
 
+# Text of the CA cert to use for the targets.
+# It is mutually exclusive with `ca_file`.
+[ ca: <string> ]
+
 # The client cert file for the targets.
 [ cert_file: <filename> ]
 
+# Text of the client cert for the targets.
+# It is mutually exclusive with `cert_file`.
+[ cert: <string> ]
+
 # The client key file for the targets.
 [ key_file: <filename> ]
+
+# Text of the client key for the targets.
+# It is mutually exclusive with `key_file`.
+[ key: <secret> ]
 
 # Used to verify the hostname for the targets.
 [ server_name: <string> ]
@@ -535,20 +573,51 @@ query_response:
 
 #### `<oauth2>`
 
-OAuth 2.0 authentication using the client credentials grant type. Blackbox
-exporter fetches an access token from the specified endpoint with the given
-client access and secret keys.
+OAuth 2.0 authentication using the client credentials grant type, or the JWT
+bearer grant type (RFC 7523). Blackbox exporter fetches an access token from
+the specified endpoint with the given client access and secret keys, or with a
+JWT signed by the given private key.
 
 NOTE: This is *experimental* in the blackbox exporter and might not be
 reflected properly in the probe metrics at the moment.
 
 ```yml
 client_id: <string>
+
+# The OAuth2 grant type. One of `client_credentials` or
+# `urn:ietf:params:oauth:grant-type:jwt-bearer`.
+[ grant_type: <string> | default = "client_credentials" ]
+
+# Used with the `client_credentials` grant type.
 [ client_secret: <secret> ]
 
 # Read the client secret from a file.
 # It is mutually exclusive with `client_secret`.
 [ client_secret_file: <filename> ]
+
+# Used with the `urn:ietf:params:oauth:grant-type:jwt-bearer` grant type.
+# The PEM-encoded RSA private key used to sign the JWT assertion.
+[ client_certificate_key: <secret> ]
+
+# Read the private key from a file.
+# It is mutually exclusive with `client_certificate_key`.
+[ client_certificate_key_file: <filename> ]
+
+# Optional key ID, sent as the `kid` header of the JWT.
+[ client_certificate_key_id: <string> ]
+
+# The algorithm used to sign the JWT. One of RS256, RS384 or RS512.
+[ signature_algorithm: <string> | default = "RS256" ]
+
+# The `iss` claim of the JWT. Defaults to `client_id`.
+[ iss: <string> ]
+
+# The `aud` claim of the JWT. Defaults to `token_url`.
+[ audience: <string> ]
+
+# Extra claims added to the JWT.
+claims:
+  [ <string>: <value> ... ]
 
 # Scopes for the token request.
 scopes:
@@ -560,4 +629,9 @@ token_url: <string>
 # Optional parameters to append to the token URL.
 endpoint_params:
   [ <string>: <string> ... ]
+
+# Configures the token request's TLS settings, for example a client
+# certificate for IdPs that authenticate the client with mutual TLS.
+tls_config:
+  [ <tls_config> ]
 ```
