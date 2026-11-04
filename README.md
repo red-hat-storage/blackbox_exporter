@@ -1,6 +1,6 @@
 # Blackbox exporter
 
-[![CircleCI](https://circleci.com/gh/prometheus/blackbox_exporter/tree/master.svg?style=shield)][circleci]
+[![Build Status](https://github.com/prometheus/blackbox_exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/prometheus/blackbox_exporter/actions/workflows/ci.yml)
 [![Docker Repository on Quay](https://quay.io/repository/prometheus/blackbox-exporter/status)][quay]
 [![Docker Pulls](https://img.shields.io/docker/pulls/prom/blackbox-exporter.svg?maxAge=604800)][hub]
 
@@ -19,6 +19,8 @@ Then:
 
 
 ### Using the docker image
+
+Images are published to [Quay][quay] (`quay.io/prometheus/blackbox-exporter`), [Docker Hub][hub] (`prom/blackbox-exporter`) and the [GitHub Container Registry][ghcr] (`ghcr.io/prometheus/blackbox-exporter`).
 
 *Note: You may want to [enable ipv6 in your docker configuration](https://docs.docker.com/v17.09/engine/userguide/networking/default_network/ipv6/)*
 
@@ -248,6 +250,26 @@ scrape_configs:
         target_label: vhost  # and store it in 'vhost' label
 ```
 
+### DNS resolution of targets
+
+The blackbox exporter resolves the target hostname on every probe and does not
+cache the result. This applies to all probers except `unix`.
+
+IP address targets are used as-is and never cause a DNS query. For the `dns`
+prober the lookup is for the DNS server given as the target, not for
+`query_name`.
+
+With the default `ip_protocol_fallback: true`, each lookup asks for both A and
+AAAA records, so one probe can send two queries. Setting
+`preferred_ip_protocol` and `ip_protocol_fallback: false` limits it to one
+record type.
+
+If you probe many hostnames at a short interval and want fewer DNS queries,
+run a caching DNS resolver next to the exporter, such as systemd-resolved,
+unbound or dnsmasq, and point the exporter's `/etc/resolv.conf` at it. The
+systemd-resolved stub (`127.0.0.53`) or NodeLocal DNSCache on Kubernetes work
+the same way.
+
 ## Permissions
 
 The ICMP probe requires elevated privileges to function:
@@ -267,6 +289,20 @@ The ICMP probe requires elevated privileges to function:
 The UNIX probe requires the process owner to have write permissions (w) to the UNIX socket,
 and access permissions (x) to the directory structure the socket resides in.
 
+## Security
+
+Report vulnerabilities privately as described in the [Prometheus security policy](https://prometheus.io/docs/operating/security/).
+Do not open public issues or PRs for them.
+
+The project acts on [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) results only.
+Reports from other scanners must include `govulncheck` output showing the exporter is affected by the CVE.
+
+The exporter makes requests to any target it is given.
+Secure its endpoints with [TLS and basic authentication](#tls-and-basic-authentication) and do not expose it to the internet.
+
+Also see [SECURITY.md](SECURITY.md)
+
 [circleci]: https://circleci.com/gh/prometheus/blackbox_exporter
 [hub]: https://hub.docker.com/r/prom/blackbox-exporter/
 [quay]: https://quay.io/repository/prometheus/blackbox-exporter
+[ghcr]: https://github.com/orgs/prometheus/packages?repo_name=blackbox_exporter
