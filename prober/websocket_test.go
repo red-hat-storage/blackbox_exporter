@@ -27,27 +27,27 @@ import (
 	"github.com/prometheus/common/promslog"
 
 	"github.com/gorilla/websocket"
-	"github.com/prometheus/blackbox_exporter/config"
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/prometheus/blackbox_exporter/config"
 )
 
 func TestCostructHeadersFromConfig(t *testing.T) {
-
 	usernameFile := "/tmp/username_file_test"
 	passwordFile := "/tmp/password_file_test"
 
-	if err := os.WriteFile(usernameFile, []byte("user_from_file"), 0644); err != nil {
+	if err := os.WriteFile(usernameFile, []byte("user_from_file"), 0o644); err != nil {
 		t.Fatalf("Failed to create username file: %v", err)
 	}
 	defer os.Remove(usernameFile)
 
-	if err := os.WriteFile(passwordFile, []byte("password_from_file"), 0644); err != nil {
+	if err := os.WriteFile(passwordFile, []byte("password_from_file"), 0o644); err != nil {
 		t.Fatalf("Failed to create password file: %v", err)
 	}
 	defer os.Remove(passwordFile)
 
 	headerFile := "/tmp/header_file_test"
-	if err := os.WriteFile(headerFile, []byte("header_value_from_file"), 0644); err != nil {
+	if err := os.WriteFile(headerFile, []byte("header_value_from_file"), 0o644); err != nil {
 		t.Fatalf("Failed to create header file: %v", err)
 	}
 	defer os.Remove(headerFile)
@@ -68,7 +68,7 @@ func TestCostructHeadersFromConfig(t *testing.T) {
 			},
 		},
 	}
-	testCases := []map[string]interface{}{
+	testCases := []map[string]any{
 		{
 			"test": testConfig,
 			"expected": map[string][]string{
@@ -114,16 +114,15 @@ func TestCostructHeadersFromConfig(t *testing.T) {
 }
 
 func TestProbeWebsocket(t *testing.T) {
-
-	regexp_1, err := config.NewRegexp("incoming_(.+)")
+	regexp1, err := config.NewRegexp("incoming_(.+)")
 	if err != nil {
 		t.Errorf("Failed to create regexp: %v", err)
 	}
-	regexp_2, err := config.NewRegexp("^passed")
+	regexp2, err := config.NewRegexp("^passed")
 	if err != nil {
 		t.Errorf("Failed to create regexp: %v", err)
 	}
-	regexp_3, err := config.NewRegexp("^someotherstring")
+	regexp3, err := config.NewRegexp("^someotherstring")
 	if err != nil {
 		t.Errorf("Failed to create regexp: %v", err)
 	}
@@ -136,7 +135,7 @@ func TestProbeWebsocket(t *testing.T) {
 	}
 
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var upgrader = websocket.Upgrader{}
+		upgrader := websocket.Upgrader{}
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -154,22 +153,21 @@ func TestProbeWebsocket(t *testing.T) {
 			t.Errorf("Expected: %v, got: %v", "outgoing_test", string(message))
 		}
 		conn.WriteMessage(websocket.TextMessage, []byte("passed"))
-
 	}))
 	defer s.Close()
 	url := strings.Replace(s.URL, "http://", "ws://", 1)
 
 	// Test with TLS. To check that certificate checking is skipped
-	s_ssl := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var upgrader = websocket.Upgrader{}
+	sSSL := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			t.Errorf("Failed to upgrade connection: %v", err)
 		}
 		defer conn.Close()
 	}))
-	defer s_ssl.Close()
-	s_url := strings.Replace(s_ssl.URL, "https://", "wss://", 1)
+	defer sSSL.Close()
+	sURL := strings.Replace(sSSL.URL, "https://", "wss://", 1)
 
 	testCases := []testCase{
 		{
@@ -179,11 +177,11 @@ func TestProbeWebsocket(t *testing.T) {
 					IPProtocolFallback: true,
 					QueryResponse: []config.QueryResponse{
 						{
-							Expect: regexp_1,
+							Expect: regexp1,
 							Send:   "outgoing_${1}",
 						},
 						{
-							Expect: regexp_2,
+							Expect: regexp2,
 						},
 					},
 				},
@@ -202,11 +200,11 @@ func TestProbeWebsocket(t *testing.T) {
 					IPProtocolFallback: true,
 					QueryResponse: []config.QueryResponse{
 						{
-							Expect: regexp_1,
+							Expect: regexp1,
 							Send:   "outgoing_${1}",
 						},
 						{
-							Expect: regexp_3,
+							Expect: regexp3,
 						},
 					},
 				},
@@ -219,7 +217,7 @@ func TestProbeWebsocket(t *testing.T) {
 			expectedSuccess: false,
 		},
 		{
-			url: s_url,
+			url: sURL,
 			module: config.Module{
 				Websocket: config.WebsocketProbe{
 					IPProtocolFallback: true,
@@ -252,11 +250,11 @@ func TestProbeWebsocket(t *testing.T) {
 					IPProtocolFallback: true,
 					QueryResponse: []config.QueryResponse{
 						{
-							Expect: regexp_1,
+							Expect: regexp1,
 							Send:   "outgoing_${1}",
 						},
 						{
-							Expect: regexp_2,
+							Expect: regexp2,
 						},
 					},
 				},
@@ -315,5 +313,4 @@ func TestProbeWebsocket(t *testing.T) {
 			}
 		}
 	}
-
 }
